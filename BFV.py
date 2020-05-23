@@ -14,11 +14,12 @@ ClientPlayer_TeamID = 0x1C48 #
 ClientPlayer_Soldier = 0x1d50 #
 ClientPlayer_Vehicle = 0x1d60 #
 GameRenderer_RenderView = 0x60 #
-RenderView_ViewMatrix = 0x2F0 #
+RenderView_ViewMatrix = 0x4F0 #
 HC_Health = 0x20
 HC_MaxHealth = 0x24
 CVE_TeamID = 0x234
 CSE_HealthComponent = 0x2e8 # DONE
+CSE_Occluded = 0xA7B
 CCPE_Transform = 0x3a0#0x3c0
 CSE_Player = 0x3A8
 CVE_VehicleEntityData = 0x38
@@ -36,6 +37,8 @@ OD_ControlledState = 0x8C
 
 global offsets
 offsets = {}
+
+global originalff
 		
 class PointerManager():
 	def __init__(self,pHandle):
@@ -294,8 +297,11 @@ def build_offsets(pHandle):
 	global offsets
 	print ("[+] Gathering offsets, please wait...")
 	x = sigscan(pHandle)
+	#offset = x.scan("48 8B 05 ? ? ? ? 48 89 47 40")
+	#print("0x%08x "%(offset))
 	mem = MemAccess(pHandle)
-	offsets["OBFUS_MGR"] = 0;
+	
+	offsets["OBFUS_MGR"] = 0
 	offsets["CryptMode"] = 0
 	offsets["Dx11Secret"] = 0x598447EFD7A36912
 	offsets["Dx11EncBuffer"] = 0
@@ -322,8 +328,10 @@ def build_offsets(pHandle):
 	offsets["OBFUS_MGR_RET_1"]                 = 0x14164BD28
 	offsets["OBFUS_MGR_DEC_FUNC"]              = 0x141609510
 	offsets["OBJECTIVE_VTBL"]                  = 0x14377BAF8
-
-	
+	offsets["FF_SS"]						   = 0x141bcfb32
+	global originalff
+	originalff = mem[offsets["FF_SS"]].read_float(0x18)
+	print(str(originalff))
 	return offsets
 
 def GetLocalPlayerList(pHandle):
@@ -458,6 +466,7 @@ class GameSoldierData():
 	teamid = 0
 	alive = True
 	vehicle = 0
+	occluded = 0
 	
 class GameVehicleData():
 	pointer = 0
@@ -542,6 +551,7 @@ class GameData():
 	myvehicle = 0
 	myviewmatrix = 0
 	mytransform = 0
+	myname = ""
 	valid = False
 	
 	def __init__(self):
@@ -689,17 +699,21 @@ def Process(pHandle,cnt):
 	g_gamedata.myvehicle = MyVehicle
 	g_gamedata.myviewmatrix = MyViewmatrix
 	g_gamedata.mytransform = MyTransform
+
 	
-	
-	#print ("MyPlayer : 0x%016X" % MyPlayer)
-	#print ("MySoldier: 0x%016X" % MySoldier)
-	#print ("MyTeamId : 0x%016X" % MyTeamId)
-	#print ("MyPos    : %s\n" % str(MyPos))
+	ff = mem[offsets["FF_SS"]]().read_float(0x18)
+	ff_nopointer = mem[offsets["FF_SS"]].read_float(0x18)
+	if (ff != 0.0):
+		print("FF taking a screenshot! " + str(ff))
+		sys.exit(0)
+	if ff_nopointer != originalff:
+		print("FF_nopointer taking a screenshot!" + str(ff_nopointer))
+		sys.exit(0)
 		
 	if MySoldier == 0:
 		g_gamedata.myviewmatrix = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]
 		g_gamedata.mytransform = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]
-
+	
 	g_gamedata.valid = True
 	
 	# Render Soldiers
@@ -709,6 +723,7 @@ def Process(pHandle,cnt):
 		
 		# if you are me, skip
 		if (Soldier == MySoldier):
+			g_gamedata.myname = mem[Soldier](CSE_Player).read_string(0x40)
 			continue
 
 		# if you are not attached to a ClientPlayer, skip
@@ -722,6 +737,8 @@ def Process(pHandle,cnt):
 			
 		TeamId = mem[Soldier](CSE_Player).read_uint32(ClientPlayer_TeamID)
 		Transform = GetEntityTransform(pHandle,Soldier)
+		Occluded = mem[Soldier].read_uint8(CSE_Occluded)
+		#print(str(Occluded))
 		
 		
 		if Transform == 0:
@@ -745,6 +762,7 @@ def Process(pHandle,cnt):
 		SoldierData.health = Health
 		SoldierData.maxhealth = MaxHealth
 		SoldierData.name = name
+		SoldierData.occluded = Occluded
 		
 		g_gamedata.AddSoldier(SoldierData)
 	
@@ -768,6 +786,7 @@ def Process(pHandle,cnt):
 		g_gamedata.AddVehicle(VehicleData)
 		#print ("0x%016x"%Vehicle)
 	
+	'''
 	# Get all objectives by accessing ObjectiveManager and iterating all ObjectiveData
 	g_gamedata.ClearUIObjectives()
 	i=0
@@ -969,6 +988,7 @@ def Process(pHandle,cnt):
 					g_gamedata.loots[g_gamedata.LastVestLootPtr].AccessCount += 1
 					if (mem[g_gamedata.LastVestLootPtr].read_int32(0x238) == -1):
 						del g_gamedata.loots[g_gamedata.LastVestLootPtr]
+		'''
 
 
 

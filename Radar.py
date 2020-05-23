@@ -8,8 +8,13 @@ import traceback
 import time
 import MemAccess
 import struct
+import win32api
+import win32gui
+import win32con
 from ctypes import *
 from ctypes.wintypes import *
+from itertools import chain
+
 
 
 
@@ -30,6 +35,12 @@ def get_pythonArch():
 	return bitness
   
 GetAsyncKeyState = cdll.user32.GetAsyncKeyState
+
+fuchsia = (255,0,128)  # Transparency color
+color_red = (255,0,0)
+color_yellow = (255,255,0)
+windowWidth = 2560
+windowHeight = 1440
   
 class Color:
 	BLACK = (0, 0, 0)
@@ -76,11 +87,33 @@ def rotate_point(pos, cen, angle, angle_in_radians=True):
 	ret[2] = (sin_theta * (pos[0] - cen[0]) + cos_theta * (pos[2] - cen[2])) + cen[2]
 	return ret
 
+def windowEnumerationHandler(hwnd, top_windows):
+    top_windows.append((hwnd, win32gui.GetWindowText(hwnd)))
+
+def Get_Game_Window(): # unused because it does not work
+	top_windows = []
+	handle = []
+	win32gui.EnumWindows(windowEnumerationHandler, top_windows)
+
+	for i in top_windows:
+		#print(i[1])
+		if ("battlefield" in i[1].lower()):
+			handle = i[0]
+	windowrect = win32gui.GetWindowRect(handle)
+	x = windowrect[0] - 5 # -5 so it lines up perfectly
+	y = windowrect[1]
+	width = windowrect[2] - x
+	height = windowrect[3] - y
+	return x, y, width, height, handle
+
 class Radar():
-	def __init__(self,width,height):
+	def __init__(self,width,height,text):
 		# Initialize PyGame
 		pygame.init()
 		pygame.display.init()
+
+		#window = Get_Game_Window()
+		#print(' '.join(map(str,window)))
 		
 		# Load Sprites
 		self.gfx = RadarSprites.RadarSprites()
@@ -96,12 +129,22 @@ class Radar():
 		# Set Screen Parameters
 		self.height = height
 		self.width = width
-		self.screen = pygame.display.set_mode((self.width, self.height))
+		global windowWidth
+		windowWidth = width
+		global windowHeight
+		windowHeight = height
+		self.screen = pygame.display.set_mode((width, height), pygame.NOFRAME | pygame.DOUBLEBUF)
 		self.distance = self.height
 		self.zoom = 2.0
+		self.text = text
+
+		hwnd = pygame.display.get_wm_info()["window"]
+		win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE) | win32con.WS_EX_LAYERED)
+		win32gui.SetLayeredWindowAttributes(hwnd, win32api.RGB(*fuchsia), 0, win32con.LWA_COLORKEY)
+		win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, width, height, 0x0001)
 		
 		# Initialize Fonts
-		self.myfont = pygame.font.SysFont('Arial', 16)
+		self.myfont = pygame.font.SysFont("calibri", 20)
 		self.myfontbig = pygame.font.SysFont('Arial', 30)
 		
 		# Initialize Update Count
@@ -151,7 +194,7 @@ class Radar():
 		p1 = rotate((0+x  ,4+y ),angle+90)
 		p2 = rotate((10+x ,0+y ),angle+90)
 		
-		pygame.draw.polygon(self.screen, color, [p0,p1,p2])
+		#pygame.draw.polygon(self.screen, color, [p0,p1,p2])
 	
 	# Transposes center based coordinates to top/left based coordinates
 	def FromCenter(self,x,y):
@@ -170,10 +213,10 @@ class Radar():
 				Position = self.FromCenter(Pos[0],Pos[1])
 				if (CapturePoint.initialteamowner == data.myteamid):
 					textsurface = self.myfontbig.render(hex(CapturePoint.pointer), False, Color.GREEN)
-					self.screen.blit(textsurface,(Position.x-2,Position.y-1))
+					#self.screen.blit(textsurface,(Position.x-2,Position.y-1))
 				else:
 					textsurface = self.myfontbig.render(hex(CapturePoint.pointer), False, Color.RED)
-					self.screen.blit(textsurface,(Position.x-2,Position.y-1))
+					#self.screen.blit(textsurface,(Position.x-2,Position.y-1))
 		
 		for UIObjective in data.uiobjectives:
 			RadarData = self.GetRadarData(data.mytransform[3],data.myviewmatrix,UIObjective.transform)
@@ -183,12 +226,12 @@ class Radar():
 			Position = self.FromCenter(Pos[0],Pos[1])
 
 			if (UIObjective.teamstate == 1):
-				self.screen.blit(self.gfx.flaggreen,(Position.x,Position.y-20))
+				#self.screen.blit(self.gfx.flaggreen,(Position.x,Position.y-20))
 				textsurface = self.myfont.render(UIObjective.shortname, False, Color.GREEN)
 			else:
-				self.screen.blit(self.gfx.flagred,(Position.x,Position.y-20))
+				#self.screen.blit(self.gfx.flagred,(Position.x,Position.y-20))
 				textsurface = self.myfont.render(UIObjective.shortname, False, Color.RED)
-			self.screen.blit(textsurface,(Position.x-2,Position.y-1))
+			#self.screen.blit(textsurface,(Position.x-2,Position.y-1))
 
 	def UpdateExplosives(self,data):
 		for Explosive in data.explosives:
@@ -197,7 +240,7 @@ class Radar():
 			Yaw = RadarData[1]
 			Position = self.FromCenter(Pos[0],Pos[1])
 			textsurface = self.myfont.render("x", False, (Color.RED,Color.GREEN)[data.myteamid == Explosive.teamid])
-			self.screen.blit(textsurface,(Position.x,Position.y))
+			#self.screen.blit(textsurface,(Position.x,Position.y))
 			
 	def UpdateGrenades(self,data):
 		for Grenade in data.grenades:
@@ -207,7 +250,7 @@ class Radar():
 			Position = self.FromCenter(Pos[0],Pos[1])
 			if((cnt%16)>= 8):textsurface = self.myfont.render("G", False, Color.RED)
 			else: textsurface = self.myfont.render("G", False, Color.GREEN)
-			self.screen.blit(textsurface,(Position.x,Position.y))
+			#self.screen.blit(textsurface,(Position.x,Position.y))
 			
 			
 	def UpdateSupplies(self,data):
@@ -217,9 +260,9 @@ class Radar():
 			Yaw = RadarData[1]
 			Position = self.FromCenter(Pos[0],Pos[1])
 			if (Supply.name == "Supply_Ammo_Station"):
-				self.screen.blit(self.gfx.ammospot,(Position.x,Position.y))
+				pass#self.screen.blit(self.gfx.ammospot,(Position.x,Position.y))
 			elif (Supply.name == "Supply_Medical_Station"):
-				self.screen.blit(self.gfx.health,(Position.x,Position.y))
+				pass#self.screen.blit(self.gfx.health,(Position.x,Position.y))
 			else:
 				continue		
 
@@ -231,26 +274,77 @@ class Radar():
 			# If the soldier is in a vehicle lets skip rendering it
 			if Soldier.vehicle:
 				continue
-				
-			RadarData = self.GetRadarData(data.mytransform[3],data.myviewmatrix,Soldier.transform)
-			Pos = RadarData[0]
-			Yaw = RadarData[1]
-				
-			# Transpose soldier coordinates to radar
-			Position = self.FromCenter(Pos[0],Pos[1])
 			
+			#drawFoot, foot_esp_x, foot_esp_y = self.World2Screen(data.myviewmatrix, Soldier.transform[3][0], Soldier.transform[3][1], Soldier.transform[3][2])
+			drawHead, head_esp_x, head_esp_y = self.World2Screen(data.myviewmatrix, Soldier.transform[3][0], Soldier.transform[3][1] + 1.6, Soldier.transform[3][2])
+
+			distance = self.FindDistance(Soldier.transform[3][0], Soldier.transform[3][1], Soldier.transform[3][2], data.mytransform[3][0], data.mytransform[3][1], data.mytransform[3][2])
+			if (distance == 0):
+				distance = 0.01
+
+			rect_h = (2500 / distance) * (windowWidth / 2560)
+			rect_w = (rect_h / 2)
+
+
+			if rect_h > 150:
+				rect_h = 150
+			if rect_w > 75:
+				rect_w = 75
+
+
+			thickness = 1
 			if Soldier.alive:
 				# if our soldier is alive we draw an arrow in the direction of its yaw
 				# we color the soldier based on if it is an enemy or not
-				self.DrawArrow(Position.x,Position.y,(Color.GREEN,Color.RED)[Enemy],Yaw)
+				#self.DrawArrow(Position.x,Position.y,(Color.GREEN,Color.RED)[Enemy],Yaw)
+				if (Enemy and drawHead and distance <= 200):
+
+					color = color_yellow
+					if Soldier.occluded == 0 :
+						color = color_red
+					pygame.draw.rect(self.screen, color, pygame.Rect(head_esp_x - rect_w / 2, head_esp_y - rect_h / 8, rect_w, rect_h), thickness)
+					
+					if self.text == "text":
+						name_text = self.myfont.render(str(Soldier.name), False, color)
+						health_text = self.myfont.render("Health: " + str(Soldier.health), False, color)
+						distance_text = self.myfont.render("Distance: " + str("{:.2f}".format(distance)), False, color)
+						self.screen.blit(name_text, (head_esp_x+rect_w ,head_esp_y-40))
+						self.screen.blit(health_text, (head_esp_x+rect_w,head_esp_y-20))
+						self.screen.blit(distance_text, (head_esp_x+rect_w,head_esp_y))
+
 			else:
 				if (Enemy):
 					# if we have a dead enemy soldier mark it with red skull
-					self.screen.blit(self.gfx.deadiconred,(Position.x,Position.y))
+					pass#self.screen.blit(self.gfx.deadiconred,(Position.x,Position.y))
 				else:
 					# if we have a dead team soldier mark it with green skull
-					self.screen.blit(self.gfx.deadicongreen,(Position.x,Position.y))
-					
+					pass#self.screen.blit(self.gfx.deadicongreen,(Position.x,Position.y))
+	
+	def FindDistance(self, d_x, d_y, d_z, l_x, l_y, l_z):
+		distance = math.sqrt((d_x - l_x)**2 + (d_y - l_y)**2 + (d_z - l_z)**2)
+		return distance
+
+	def World2Screen(self, MyViewMatrix, posX, posY, posZ):
+
+		w = float(MyViewMatrix[0][3] * posX + MyViewMatrix[1][3] * posY + MyViewMatrix[2][3] * posZ + MyViewMatrix[3][3])
+
+		if w < 0.65:
+			x = -200
+			y = -200
+			return False, x, y
+
+		x = float(MyViewMatrix[0][0] * posX + MyViewMatrix[1][0] * posY + MyViewMatrix[2][0] * posZ + MyViewMatrix[3][0])
+
+		y = float(MyViewMatrix[0][1] * posX + MyViewMatrix[1][1] * posY + MyViewMatrix[2][1] * posZ + MyViewMatrix[3][1])
+
+		mX = float(windowWidth / 2)
+		mY = float(windowHeight / 2)
+
+		x = float(mX + mX * x / w)
+		y = float(mY - mY * y / w)
+
+		return True, x, y
+
 	def DrawTank(self,Position,yaw,VColor):
 		if (VColor == Color.RED):
 			rot = pygame.transform.rotate(self.gfx.tankred,yaw)				
@@ -258,7 +352,7 @@ class Radar():
 			rot = pygame.transform.rotate(self.gfx.tankgreen,yaw)
 		else:
 			rot = pygame.transform.rotate(self.gfx.tankwhite,yaw)
-		self.screen.blit(rot,(Position.x-7,Position.y-15))
+		#self.screen.blit(rot,(Position.x-7,Position.y-15))
 				
 	def DrawPlane(self,Position,yaw,VColor):
 		if (VColor == Color.RED):
@@ -267,23 +361,23 @@ class Radar():
 			rot = pygame.transform.rotate(self.gfx.planegreen,yaw)
 		else:
 			rot = pygame.transform.rotate(self.gfx.planewhite,yaw)
-		self.screen.blit(rot,(Position.x-14,Position.y-20))
+		#self.screen.blit(rot,(Position.x-14,Position.y-20))
 		
 	def DrawBeacon(self,Position,VColor):
 		if (VColor == Color.RED):
-			self.screen.blit(self.gfx.beaconiconred,(Position.x,Position.y))
+			pass#self.screen.blit(self.gfx.beaconiconred,(Position.x,Position.y))
 		elif (VColor == Color.GREEN):
-			self.screen.blit(self.gfx.beaconicongreen,(Position.x,Position.y))
+			pass#self.screen.blit(self.gfx.beaconicongreen,(Position.x,Position.y))
 		else:
-			self.screen.blit(self.gfx.beaconiconwhite,(Position.x,Position.y))
+			pass#self.screen.blit(self.gfx.beaconiconwhite,(Position.x,Position.y))
 			
 	def DrawStationary(self,Position,VColor):
 		if (VColor == Color.RED):
-			self.screen.blit(self.gfx.stationgunred,(Position.x,Position.y))
+			pass#self.screen.blit(self.gfx.stationgunred,(Position.x,Position.y))
 		elif (VColor == Color.GREEN):
-			self.screen.blit(self.gfx.stationgungreen,(Position.x,Position.y))
+			pass#self.screen.blit(self.gfx.stationgungreen,(Position.x,Position.y))
 		else:
-			self.screen.blit(self.gfx.stationgunwhite,(Position.x,Position.y))
+			pass#self.screen.blit(self.gfx.stationgunwhite,(Position.x,Position.y))
 			
 	def DrawTransport(self,Position,yaw,VColor):
 		if (VColor == Color.RED):
@@ -292,7 +386,7 @@ class Radar():
 			rot = pygame.transform.rotate(self.gfx.cargreen,yaw)
 		else:
 			rot = pygame.transform.rotate(self.gfx.carwhite,yaw)
-		self.screen.blit(rot,(Position.x-12,Position.y-20))
+		#self.screen.blit(rot,(Position.x-12,Position.y-20))
 				
 	def UpdateVehicles(self,data):
 			# Main Vehicle Render Loop
@@ -304,18 +398,52 @@ class Radar():
 
 			# Transpose vehicle coordinates to radar
 			Position = self.FromCenter(Pos[0],Pos[1])
-			
-			# Set a color based on vehicle's association
-			# Green if friendly
-			# Red if enemy
-			# White is neutral
+
+			vehicleName = "NoType"
+			if "Stationary" in Vehicle.vehicletype:
+				vehicleName = "Stationary"
+			elif "Towable" in Vehicle.vehicletype:
+				vehicleName = "Towable"
+			elif "Tank" in Vehicle.vehicletype:
+				vehicleName = "Tank"
+			elif "ArmoredCar" in Vehicle.vehicletype:
+				vehicleName = "ArmoredCar"
+			elif "Halftrack" in Vehicle.vehicletype:
+				vehicleName = "Halftrack"
+			elif "Airplane" in Vehicle.vehicletype:
+				vehicleName = "Airplane"
+			elif "SpawnBeacon" in Vehicle.vehicletype:
+				continue # a spawn beacon is not a vehicle
+			else:
+				continue # we don't know what it is
+
 			if (data.myteamid == Vehicle.teamid):
 				VColor = Color.GREEN
 			elif (Vehicle.teamid):
 				VColor = Color.RED
+				draw, esp_x, esp_y = self.World2Screen(data.myviewmatrix, Vehicle.transform[3][0], Vehicle.transform[3][1], Vehicle.transform[3][2])
+				distance = self.FindDistance(Vehicle.transform[3][0], Vehicle.transform[3][1], Vehicle.transform[3][2], data.mytransform[3][0], data.mytransform[3][1], data.mytransform[3][2])
+				if (distance == 0):
+					distance = 0.001
+				if (vehicleName == "Stationary"):
+					rect_w = (3500 / distance) * (windowWidth / 2560)
+				else:
+					rect_w = (6000 / distance) * (windowWidth / 2560)
+				rect_h = (rect_w / 2)
+				if (draw and distance <= 200):
+
+					pygame.draw.rect(self.screen, color_red, pygame.Rect(esp_x - rect_w / 2, esp_y - rect_h, rect_w, rect_h), 2)
+
+					if self.text == "text":
+						name_text = self.myfont.render(vehicleName, False, color_red)
+						distance_text = self.myfont.render("Distance: " + str("{:.2f}".format(distance)), False, color_red)
+						self.screen.blit(name_text, (esp_x+rect_w/2, esp_y-20))
+						self.screen.blit(distance_text, (esp_x+rect_w/2, esp_y))
+					
 			else:
 				VColor = Color.WHITE
 
+			'''
 			if "Stationary" in Vehicle.vehicletype:
 				self.DrawStationary(Position,VColor)
 			elif "Towable" in Vehicle.vehicletype:
@@ -332,17 +460,18 @@ class Radar():
 				self.DrawBeacon(Position,VColor)
 			else:
 				self.DrawTransport(Position,Yaw,VColor)
+			'''
 	
 	def DrawDot(self,pos,color):
-		self.screen.set_at((pos[0], pos[1]-1), color)
-		self.screen.set_at((pos[0]+1, pos[1]-1), color)
-		self.screen.set_at((pos[0]-1, pos[1]-1), color)
-		self.screen.set_at((pos[0], pos[1]), color)
-		self.screen.set_at((pos[0]+1, pos[1]), color)
-		self.screen.set_at((pos[0]-1, pos[1]), color)
-		self.screen.set_at((pos[0], pos[1]+1), color)
-		self.screen.set_at((pos[0]+1, pos[1]+1), color)
-		self.screen.set_at((pos[0]-1, pos[1]+1), color)
+		#self.screen.set_at((pos[0], pos[1]-1), color)
+		#self.screen.set_at((pos[0]+1, pos[1]-1), color)
+		#self.screen.set_at((pos[0]-1, pos[1]-1), color)
+		#self.screen.set_at((pos[0], pos[1]), color)
+		#self.screen.set_at((pos[0]+1, pos[1]), color)
+		#self.screen.set_at((pos[0]-1, pos[1]), color)
+		#self.screen.set_at((pos[0], pos[1]+1), color)
+		#self.screen.set_at((pos[0]+1, pos[1]+1), color)
+		pass#self.screen.set_at((pos[0]-1, pos[1]+1), color)
 	
 	
 	def UpdateBounds(self,data):
@@ -359,7 +488,7 @@ class Radar():
 					Pos = self.FromCenter(Pos[0],Pos[1])
 					PointTransformed += [(Pos.x,Pos.y)]
 				if len(PointTransformed) > 1:
-					pygame.draw.polygon(self.screen, C, PointTransformed,3)
+					pass#pygame.draw.polygon(self.screen, C, PointTransformed,3)
 			
 	def UpdateFirestorm(self,data):
 	
@@ -371,7 +500,7 @@ class Radar():
 
 				# Transpose vehicle coordinates to radar
 				Position = self.FromCenter(Pos[0],Pos[1])
-				self.screen.blit(self.gfx.safe,(Position.x,Position.y))
+				#self.screen.blit(self.gfx.safe,(Position.x,Position.y))
 			
 			# Crates are kind of noisy, if you want them uncomment this block
 			
@@ -393,7 +522,7 @@ class Radar():
 			Position = self.FromCenter(Pos[0],Pos[1])
 			rad = c.OuterCircleRadius_Moving * self.zoom
 			if (int(rad)>3):
-				pygame.draw.circle(self.screen,(246,108,0),(Position.x,Position.y),int(rad),3)
+				pass#pygame.draw.circle(self.screen,(246,108,0),(Position.x,Position.y),int(rad),3)
 			
 			RadarData = self.GetRadarData(data.mytransform[3],data.myviewmatrix,[[0,0,0,0],[0,0,0,0],[0,0,0,0],c.InnerCircle_Const])
 			Pos = RadarData[0]
@@ -401,7 +530,7 @@ class Radar():
 			Position = self.FromCenter(Pos[0],Pos[1])	
 			rad = c.InnerCircleRadius_Const * self.zoom
 			if (int(rad)>3):
-				pygame.draw.circle(self.screen,(55,229,251),(Position.x,Position.y),int(rad),3)
+				pass#pygame.draw.circle(self.screen,(55,229,251),(Position.x,Position.y),int(rad),3)
 			
 		for LootEntityPtr in data.loots:	
 			LootEntity = data.loots[LootEntityPtr]
@@ -480,7 +609,7 @@ class Radar():
 		
 	def Text(self,text,color,x,y):
 		textsurface = self.myfont.render(text, False, color)
-		self.screen.blit(textsurface,(x,y))
+		#self.screen.blit(textsurface,(x,y))
 			
 	# The main PyGame render loop, this takes a GameData object
 	# which contains information on all relvant entities and draws
@@ -504,13 +633,13 @@ class Radar():
 
 		# Set our background first, everything else on top of it
 		try:
-			self.screen.fill(Color.BLACK)
+			self.screen.fill(fuchsia)
 		except:
 			print("[+] Quitting...")
 			exit(0)
 			
-		pygame.draw.line(self.screen, Color.RED, (self.width/2,0),(self.width/2,self.height))
-		pygame.draw.line(self.screen, Color.RED, (0,self.height/2),(self.width,self.height/2))
+		#pygame.draw.line(self.screen, Color.RED, (self.width/2,0),(self.width/2,self.height))
+		#pygame.draw.line(self.screen, Color.RED, (0,self.height/2),(self.width,self.height/2))
 		
 		if (g_gamedata.valid):
 			if (g_gamedata.mysoldier == 0):
@@ -519,13 +648,13 @@ class Radar():
 					g_gamedata.myviewmatrix = [[0,0,0,0],[0,0,0,0],[0,0,0,0],c.InnerCircle_Const]
 					g_gamedata.mytransform = [[0,0,0,0],[0,0,0,0],[0,0,0,0],c.InnerCircle_Const]
 					
-			self.UpdateBounds(g_gamedata)
+			#self.UpdateBounds(g_gamedata)
 			self.UpdateVehicles(g_gamedata)
-			self.UpdateObjectives(g_gamedata)
-			self.UpdateGrenades(g_gamedata)
-			self.UpdateExplosives(g_gamedata)
-			self.UpdateSupplies(g_gamedata)
-			self.UpdateFirestorm(g_gamedata)
+			#self.UpdateObjectives(g_gamedata)
+			#self.UpdateGrenades(g_gamedata)
+			#self.UpdateExplosives(g_gamedata)
+			#self.UpdateSupplies(g_gamedata)
+			#self.UpdateFirestorm(g_gamedata)
 			self.UpdateSoldiers(g_gamedata)
 			
 
@@ -549,9 +678,9 @@ def StartRadar():
 	BFV.initialize(phandle) # Gather offsets, patch the game
 	
 	print ("[+] Starting Radar...")
-	rad = Radar(w,h)
+	rad = Radar(w,h, text)
 	print ("[+] Done")
-		
+	
 	cnt = 0
 	while 1:
 		BFV.Process(phandle,cnt) # this accesses game memory for data
@@ -559,7 +688,7 @@ def StartRadar():
 		cnt += 1
 
 if __name__ == "__main__":
-	print ("[+] Tormund's External Radar v1.2.2 for Battlefield V (Chapter 6.6 Update - Mar 12, 2020)")
+	print ("[+] Tormund and jo2305's External Squares v1.2.2 for Battlefield V (Chapter 6.6 Update - May 12, 2020)")
 
 	if (is_admin() == False):
 		print ("[+] Error: python (or commandline) must be ran with admin privledges")
@@ -582,18 +711,16 @@ if __name__ == "__main__":
 		w = 800
 		h = 600
 
-	elif len(sys.argv) != 3:
-		print ("[+] Usage: python ./radar.py [radar width] [radar height]")
-		input("Press Enter to continue...")
-		exit(1)
-
 	else:
 		try:
 			w = int(sys.argv[1])
 			h = int(sys.argv[2])
+			text = ""
+			if (len(sys.argv) > 3):
+				text = str(sys.argv[3]).lower()
 		except:
 			print ("[+] Error: Cannot parse arguments")
-			print ("[+] Usage: python ./radar.py [radar width] [radar height]")
+			print ("[+] Usage: python ./radar.py [radar width] [radar height] [text]")
 			input("Press Enter to continue...")
 			exit(1)
 			
